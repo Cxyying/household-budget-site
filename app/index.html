@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HomeLedger</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./style.css">
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <header>
+      <div class="masthead">
+        <div class="frame masthead-inner">
+          <a class="brand" href="#/">
+            <span class="brand-mark" aria-hidden="true"><span></span></span>
+            HomeLedger
+          </a>
+          <div class="masthead-meta">
+            <span id="household"></span>
+            <span id="ledger-month"></span>
+          </div>
+        </div>
+      </div>
+      <div class="navigation">
+        <nav class="frame nav-inner" aria-label="Main navigation">
+          <a href="#/">Overview</a>
+          <a href="#/budget">Budget planner</a>
+          <a href="#/transactions">Transactions</a>
+          <a href="#/bills">Bills</a>
+          <a href="#/goals">Goals</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="frame" id="app">
+      <noscript>Enable JavaScript to view and update your household ledger.</noscript>
+    </main>
+
+    <footer class="frame site-footer" id="ledger-footer"></footer>
+  </body>
+</html>
