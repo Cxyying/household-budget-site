@@ -2,11 +2,18 @@ import {
   amountTotal, categoryRows, goalProjection, nextBills, overviewFigures,
   rule503020, savingsRate, totals,
 } from './budget.js';
-import { money, percent, prettyDate } from './money.js';
+import { debtOutlook, DEBT_BOOST } from './debt.js';
+import { envelopePlan } from './envelopes.js';
+import { cashflowForecast, safeToSpendPerDay } from './forecast.js';
+import { daysBetween, money, percent, prettyDate, prettyMonth } from './money.js';
+import { budgetRescue, cashflowRescue, fullRescuePlan } from './rescue.js';
 
 const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, character => entities[character]);
 const words = new Intl.ListFormat('en-US', { style: 'long', type: 'conjunction' });
+const shortDate = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' });
+const dayMonth = date => shortDate.format(new Date(date));
 
 function pageHeading(title, subtitle) {
   return `
@@ -21,10 +28,14 @@ function dateTag(date) {
 }
 
 function summaryCard(label, amount, detail, accent = '') {
+  return summaryValueCard(label, money(amount), detail, accent);
+}
+
+function summaryValueCard(label, value, detail, accent = '') {
   return `
     <div class="summary-card ${accent}">
       <dt>${label}</dt>
-      <dd class="summary-amount">${money(amount)}</dd>
+      <dd class="summary-amount">${escapeHtml(value)}</dd>
       <dd class="summary-detail">${detail}</dd>
     </div>`;
 }
@@ -109,6 +120,37 @@ function newestFirst(transactions) {
   return [...transactions].reverse().sort((first, second) => second.date.localeCompare(first.date));
 }
 
+function forecastBanner(records) {
+  const forecast = cashflowForecast(records);
+  const { lowPoint, days, endDate } = forecast;
+  const month = monthName.format(new Date(endDate));
+  const firstNegative = days.find(day => day.balance < 0);
+  let heading = `The ${month} outlook`;
+  let message = `Cashflow forecast, next ${days.length} days: checking stays ${lowPoint.balance === 0 ? 'at or above' : 'above'} zero.`;
+
+  if (firstNegative) {
+    heading = `The ${month} squeeze`;
+    const { buffer, sourceName, rescuedLowPoint } = cashflowRescue(records);
+    const rent = records.bills.find(bill => bill.name === 'Rent');
+    const salary = records.forecastIncome.find(income => income.id === 'fi-salary-main');
+    const gap = rent && salary ? daysBetween(rent.nextDue, salary.date) : 0;
+    const rentTiming = gap > 0 && rent.nextDue === firstNegative.date && salary.date <= endDate
+      ? ` — the rent lands ${gap === 2 ? 'two' : gap} ${gap === 1 ? 'day' : 'days'} before the main salary`
+      : '';
+    const threshold = rescuedLowPoint.balance > 0 ? 'above' : 'at or above';
+    message = `Cashflow forecast, next ${days.length} days: checking dips below zero on ${dayMonth(firstNegative.date)}, bottoming at ${money(lowPoint.balance)} on ${dayMonth(lowPoint.date)}${rentTiming}. A ${money(buffer)} buffer from the ${sourceName.toLowerCase()} keeps every day ${threshold} zero.`;
+  }
+
+  return `
+    <section class="panel forecast-banner" aria-labelledby="forecast-banner-title">
+      <div>
+        <h2 id="forecast-banner-title">${heading}</h2>
+        <p>${escapeHtml(message)}</p>
+      </div>
+      <a href="#/forecast">See the ${days.length}-day forecast</a>
+    </section>`;
+}
+
 export function renderOverview(records) {
   const figures = overviewFigures(records);
   const rule = rule503020(records);
@@ -121,6 +163,7 @@ export function renderOverview(records) {
       ${summaryCard('Sent to savings', figures.savings, `${percent(savingsRate(records))} of income`, 'summary-savings')}
       ${summaryCard('Left in checking', figures.checking, 'After spending and savings', 'summary-checking')}
     </dl>
+    ${forecastBanner(records)}
 
     <div class="overview-grid">
       <section class="panel category-panel" aria-labelledby="category-heading">
@@ -186,12 +229,27 @@ export function renderBudgetSummary(rows) {
   return `<span class="is-over">Over budget in ${escapeHtml(words.format(items))}.</span>`;
 }
 
+function envelopeSummary(plan) {
+  const { income, assignedTotal, assignedToBudgets, assignedToSavings, unassigned } = plan;
+  const status = unassigned < 0
+    ? `${money(-unassigned)} is assigned beyond your income.`
+    : unassigned === 0 ? 'Every dollar is assigned.' : `${money(unassigned)} is still unassigned.`;
+  return `Of ${money(income)} coming in, ${money(assignedTotal)} has a job — ${money(assignedToBudgets)} in envelopes and ${money(assignedToSavings)} to savings. ${status}`;
+}
+
+export function renderEnvelopeSummary(records) {
+  const summary = envelopeSummary(envelopePlan(records));
+  const { steps } = budgetRescue(records);
+  return `${escapeHtml(summary)}${steps.length ? ` <span>${escapeHtml(steps.join(' '))}</span>` : ''}`;
+}
+
 export function renderBudget(records) {
   const rows = categoryRows(records);
   return `
     ${pageHeading('Budget planner', 'Adjust a category budget to see what you have left this month.')}
     <section class="panel table-panel" aria-label="Category budgets">
       <p class="budget-summary" id="budget-summary" role="status">${renderBudgetSummary(rows)}</p>
+      <p class="envelope-summary" id="envelope-summary" role="status">${renderEnvelopeSummary(records)}</p>
       <table class="ledger-table budget-table">
         <thead>
           <tr>
@@ -325,9 +383,176 @@ export function renderBills(records) {
     </section>`;
 }
 
-export function renderGoals(records) {
+function forecastChart({ days, lowPoint, startDate, endDate }) {
+  const balances = days.map(day => day.balance);
+  const high = Math.max(0, ...balances);
+  const low = Math.min(0, lowPoint.balance);
+  const span = high - low || 1;
+  const baseline = high === low ? 50 : high / span * 100;
+  const lowIndex = days.findIndex(day => day.date === lowPoint.date);
+  const chartLabel = `Daily closing checking balances from ${dayMonth(startDate)} to ${prettyDate(endDate)}. Lowest on ${dayMonth(lowPoint.date)} at ${money(lowPoint.balance)}.`;
   return `
-    ${pageHeading('Savings goals', 'How much you’ve saved and when each fund could reach its target.')}
+    <figure class="panel forecast-chart" aria-labelledby="forecast-chart-heading">
+      <div class="panel-heading">
+        <h2 id="forecast-chart-heading">Checking balance by day</h2>
+      </div>
+      <div class="forecast-chart-body" role="img" aria-label="${escapeHtml(chartLabel)}"
+        style="--days: ${days.length}; --zero: ${baseline}%; --low-x: ${(lowIndex + .5) / days.length * 100}%">
+        <div class="forecast-chart-labels" aria-hidden="true">
+          <span class="forecast-low-label${low < 0 ? ' is-over' : ''}">${dayMonth(lowPoint.date)} low</span>
+        </div>
+        <div class="forecast-plot" aria-hidden="true">
+          <div class="forecast-zero"><span>${money(0)}</span></div>
+          ${days.map(({ date, balance }) => `
+            <div class="forecast-column${date === lowPoint.date ? ' is-low' : ''}"
+              title="${dayMonth(date)} · ${money(balance)}">
+              <div class="forecast-bar${balance < 0 ? ' is-negative' : ''}"
+                style="--bar-height: ${Math.abs(balance) / span * 100}%"></div>
+            </div>`).join('')}
+        </div>
+        <div class="forecast-chart-labels forecast-ticks" aria-hidden="true">
+          ${days.map(({ date }, index) => {
+            const dayNumber = new Date(date).getUTCDate();
+            return [1, 10, 20].includes(dayNumber)
+              ? `<span style="--column: ${index + 1}">${dayMonth(date)}</span>`
+              : '';
+          }).join('')}
+        </div>
+      </div>
+    </figure>`;
+}
+
+function forecastEventList(days) {
+  const entries = days.flatMap(({ balance, events }) => events.map(event => ({ ...event, balance })));
+  return `
+    <section class="panel forecast-events-panel" aria-labelledby="forecast-events-heading">
+      <div class="panel-heading">
+        <h2 id="forecast-events-heading">Scheduled income and outflows</h2>
+        <p>Closing balances include day-to-day spending.</p>
+      </div>
+      <ul class="compact-list forecast-events">
+        ${entries.length ? entries.map(({ date, name, amount, balance }) => `
+          <li class="compact-row">
+            <div><strong>${escapeHtml(name)}</strong>${dateTag(date)}</div>
+            <div class="forecast-event-figures">
+              <strong class="number${amount > 0 ? ' event-inflow' : ''}">${amount > 0 ? '+' : ''}${money(amount)}</strong>
+              <span class="number${balance < 0 ? ' is-over' : ''}">${money(balance)} at close</span>
+            </div>
+          </li>`).join('') : '<li class="compact-row">No scheduled events in this window.</li>'}
+      </ul>
+    </section>`;
+}
+
+function rescuePanel(records) {
+  const { budget, cashflow, debtBoost } = fullRescuePlan(records);
+  const { extraPerMonth, monthsSaved, interestSaved } = debtBoost;
+  const extra = money(extraPerMonth);
+  const debtStep = monthsSaved === null
+    ? `An extra ${extra} a month toward the card has no comparable payoff estimate.`
+    : `Pay ${extra} more a month toward the card: debt-free ${monthsSaved} months sooner, ${money(interestSaved)} less interest.`;
+  const steps = [...budget.steps, ...cashflow.steps, debtStep];
+  return `
+    <section class="panel rescue-panel" aria-labelledby="rescue-heading">
+      <div class="panel-heading"><h2 id="rescue-heading">Rescue plan</h2></div>
+      <ul class="rescue-steps">${steps.map(step => `<li>${escapeHtml(step)}</li>`).join('')}</ul>
+    </section>`;
+}
+
+function envelopesPanel(records) {
+  const plan = envelopePlan(records);
+  const fund = records.goals.find(goal => goal.id === 'g1');
+  let suggestion = '';
+  if (plan.unassigned > 0 && fund) {
+    const current = goalProjection(fund, records.monthKey).reachDateLabel;
+    const boosted = goalProjection({ ...fund, saved: fund.saved + plan.unassigned }, records.monthKey).reachDateLabel;
+    const action = `Assigning the unassigned ${money(plan.unassigned)} to the ${fund.name.toLowerCase()} as a one-off`;
+    if (boosted && current && boosted !== current) {
+      suggestion = `${action} brings its reach date from ${current} to ${boosted}.`;
+    } else if (boosted && !current) {
+      suggestion = `${action} reaches the target in ${boosted}.`;
+    } else {
+      suggestion = `${action} adds to the amount already saved.`;
+    }
+  }
+
+  return `
+    <section class="panel table-panel envelopes-panel" aria-labelledby="envelopes-heading">
+      <div class="panel-heading">
+        <h2 id="envelopes-heading">Zero-based envelopes</h2>
+        <p>${escapeHtml(envelopeSummary(plan))}</p>
+      </div>
+      <table class="ledger-table envelope-table">
+        <thead><tr>
+          <th scope="col">Envelope</th>
+          <th scope="col">Assigned</th>
+          <th scope="col">Spent</th>
+          <th scope="col">Remaining</th>
+          <th scope="col">Rollover</th>
+        </tr></thead>
+        <tbody>
+          ${plan.rows.map(row => `
+            <tr${row.state === 'over' ? ' class="is-over"' : ''}>
+              <th scope="row">${escapeHtml(row.name)}</th>
+              <td class="number" data-label="Assigned">${money(row.assigned)}</td>
+              <td class="number" data-label="Spent">${money(row.spent)}</td>
+              <td class="number" data-label="Remaining">${money(row.remaining)}</td>
+              <td class="number" data-label="Rollover">${money(row.rollover)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      ${suggestion ? `<p class="envelope-suggestion">${escapeHtml(suggestion)}</p>` : ''}
+    </section>`;
+}
+
+export function renderForecast(records) {
+  const forecast = cashflowForecast(records);
+  const { startDate, endDate, lowPoint, endBalance, days } = forecast;
+  const dates = `${dayMonth(startDate)} – ${prettyDate(endDate)}`;
+  const month = monthName.format(new Date(`${records.monthKey}-01`));
+  return `
+    ${pageHeading(`${days.length}-day cashflow forecast`, `${dates} · built from your bills, your paydays and ${month}'s day-to-day pace`)}
+    <dl class="summary-grid three-cards forecast-summary" aria-label="Forecast summary">
+      ${summaryCard('Low point', lowPoint.balance, dateTag(lowPoint.date), lowPoint.balance < 0 ? 'summary-danger' : '')}
+      ${summaryCard(`Balance on ${dayMonth(endDate)}`, endBalance, 'Projected closing balance', 'summary-savings')}
+      ${summaryCard('Safe to spend', safeToSpendPerDay(records), 'per day for the rest of the window', 'summary-checking')}
+    </dl>
+    ${forecastChart(forecast)}
+    ${rescuePanel(records)}
+    ${forecastEventList(days)}
+    ${envelopesPanel(records)}`;
+}
+
+function debtCard(debt, { base, monthsSaved, interestSaved }) {
+  const payoff = base.payoffMonthKey ? prettyMonth(base.payoffMonthKey) : 'No payoff at this payment';
+  const acceleration = monthsSaved === null
+    ? ''
+    : `+${money(DEBT_BOOST)} a month: free ${monthsSaved} months sooner, ${money(interestSaved)} less interest`;
+  return `
+    <article class="panel goal-card debt-card">
+      <h2>${escapeHtml(debt.name)}</h2>
+      <p class="goal-saved"><strong class="number">${money(debt.balance)}</strong> at ${percent(debt.apr * 100, { precise: true })} APR</p>
+      <dl class="goal-details">
+        <div><dt>Monthly payment</dt><dd class="number">${money(debt.monthlyPayment)}</dd></div>
+        <div><dt>Projected payoff</dt><dd>${payoff}</dd></div>
+        <div><dt>Total interest</dt><dd class="number">${base.totalInterest === null ? '—' : money(base.totalInterest)}</dd></div>
+      </dl>
+      ${acceleration ? `<p class="debt-boost">${acceleration}</p>` : ''}
+      <p class="goal-note">${escapeHtml(debt.note)}</p>
+    </article>`;
+}
+
+export function renderGoals(records) {
+  const outlook = debtOutlook(records);
+  const payoff = outlook.base.payoffMonthKey ? prettyMonth(outlook.base.payoffMonthKey) : '—';
+  const saved = amountTotal(records.goals.map(goal => ({ amount: goal.saved })));
+  const monthly = amountTotal(records.goals.map(goal => ({ amount: goal.monthly })));
+  return `
+    ${pageHeading('Savings goals', 'When each savings fund could reach its target and when the card could be paid off.')}
+    <dl class="summary-grid three-cards goals-summary" aria-label="Goals summary">
+      ${summaryCard('Saved across all goals', saved, 'Current savings balances')}
+      ${summaryCard('Going in each month', monthly, 'Planned savings contributions', 'summary-savings')}
+      ${summaryValueCard('Debt-free by', payoff, 'At the current card payment', 'summary-checking')}
+    </dl>
     <div class="goal-grid">
       ${records.goals.map(goal => {
         const projection = goalProjection(goal, records.monthKey);
@@ -347,5 +572,6 @@ export function renderGoals(records) {
             <p class="goal-note">${escapeHtml(goal.note)}</p>
           </article>`;
       }).join('')}
+      ${debtCard(records.debt, outlook)}
     </div>`;
 }

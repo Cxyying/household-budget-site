@@ -12,6 +12,10 @@ const percentages = new Intl.NumberFormat('en-US', {
   style: 'percent',
   maximumFractionDigits: 1,
 });
+const precisePercentages = new Intl.NumberFormat('en-US', {
+  style: 'percent',
+  maximumFractionDigits: 2,
+});
 const fullDate = new Intl.DateTimeFormat('en-US', {
   month: 'short',
   day: 'numeric',
@@ -29,8 +33,8 @@ export function money(amount) {
   return (Number.isInteger(rounded) ? dollars : dollarsWithCents).format(rounded);
 }
 
-export function percent(points) {
-  return percentages.format(points / 100);
+export function percent(points, { precise = false } = {}) {
+  return (precise ? precisePercentages : percentages).format(points / 100);
 }
 
 export function prettyDate(isoDate) {

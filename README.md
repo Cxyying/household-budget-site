@@ -6,9 +6,9 @@
 
 **▶ Open it online: [cxyying.github.io/household-budget-site/app](https://cxyying.github.io/household-budget-site/app/)** — no install, runs right in your browser, even offline.
 
-A static household budget site holding one family's November 2026 books. The overview shows the month at a glance — money in, spent so far, sent to savings and what is left — with every spending category drawn against its budget (the one category over budget is flagged, not hidden), a 50/30/20 check, the next bills coming due and the latest transactions.
+A static budget site for the Miller household's November 2026 books, with zero-based envelopes, a 30-day cashflow forecast with a rescue plan, and a debt payoff engine. The overview shows income, spending, savings and checking alongside category budgets, a 50/30/20 check, upcoming bills and recent transactions.
 
-The budget planner lets you edit any category's budget and watch every total move; the transactions page filters and searches the month's spending and can add a new entry; the bills page lists what is due and when; the goals page tracks savings goals with progress and the month each one is reached at its current pace. Every figure on every page is computed in the browser from the household's own records — change a number and the whole book agrees.
+Edit category budgets in the Budget planner, search or add spending in Transactions, and check upcoming payments in Bills. Forecast shows how paydays, bills and daily spending affect checking. Goals shows the projected dates for reaching savings targets and paying off the card. The browser calculates each figure from the household's records.
 
 ## Run it
 
@@ -16,9 +16,9 @@ The budget planner lets you edit any category's budget and watch every total mov
 node serve.ts
 ```
 
-then open http://localhost:8080 in a browser. There is no build or install step: the site is the plain static files under `app/`, and it loads nothing over the network.
+Then open http://localhost:8080 in a browser. The static files under `app/` run without a build, an install, or external requests.
 
-To produce the hand-in bundle (the site, its screenshots and `dossier.json`):
+Use this command to bundle the app, screenshots and `dossier.json`.
 
 ```sh
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
@@ -26,9 +26,15 @@ mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
 ## Layout
 
-- `app/` — the site itself: `data.js` (the household's records), `budget.js` (every computation: totals, category rollups, the 50/30/20 check, bill dates, goal projections), `money.js` (money, percent and date formatting), `views.js` (the five pages), `main.js` (routing and shared state), `style.css` (the design)
-- `screenshots/` — real renders of the site running, desktop and phone
-- `main.ts` — the entrypoint that validates and hands in the site
+- `app/` — `data.js` holds the household's records, `budget.js` calculates monthly figures, and `money.js` formats amounts and dates.
+- `app/forecast.js` — daily checking balances, scheduled events and spending headroom for the Forecast page.
+- `app/envelopes.js` — zero-based assignments, rollovers and suggested moves to cover overspending.
+- `app/debt.js` — credit card amortisation and the added-payment comparison.
+- `app/rescue.js` — envelope moves, a checking buffer and the debt boost.
+- `app/views.js` — Overview, Budget planner, Transactions, Bills, Forecast and Goals.
+- `app/main.js` and `app/style.css` — routing, shared state and styling.
+- `screenshots/` — desktop captures of the running site.
+- `main.ts` — validates and bundles the site.
 - `vendor/makefun-frontend.ts` — the make.fun dossier library, unchanged
 
 The household, its people and its figures are a worked example written for this site; the arithmetic is real throughout.

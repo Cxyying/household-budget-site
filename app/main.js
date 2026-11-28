@@ -2,7 +2,8 @@ import * as data from './data.js';
 import { categoryRows } from './budget.js';
 import {
   categoryBar, renderBills, renderBudget, renderBudgetLeft, renderBudgetSummary, renderBudgetTotals,
-  renderGoals, renderOverview, renderTransactionList, renderTransactions,
+  renderEnvelopeSummary, renderForecast, renderGoals, renderOverview, renderTransactionList,
+  renderTransactions,
 } from './views.js';
 
 const records = structuredClone({ ...data });
@@ -11,6 +12,7 @@ const routes = new Map([
   ['#/budget', renderBudget],
   ['#/transactions', renderTransactions],
   ['#/bills', renderBills],
+  ['#/forecast', renderForecast],
   ['#/goals', renderGoals],
 ]);
 const app = document.querySelector('#app');
@@ -38,6 +40,7 @@ function wireBudget() {
     element.querySelector('.usage-cell').innerHTML = categoryBar(row);
     app.querySelector('#budget-totals').innerHTML = renderBudgetTotals(rows);
     app.querySelector('#budget-summary').innerHTML = renderBudgetSummary(rows);
+    app.querySelector('#envelope-summary').innerHTML = renderEnvelopeSummary(records);
   });
 
   app.addEventListener('focusout', event => {

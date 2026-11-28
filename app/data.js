@@ -98,3 +98,23 @@ export const savingsTransfer = {
   date: '2026-11-16',
   name: 'Transfer to savings',
 };
+
+export const debt = {
+  name: 'Credit card payoff',
+  balance: 2400,
+  apr: 0.2499,
+  monthlyPayment: 200,
+  note: 'Store card from the spring refit. Every payment lands on the 15th.',
+};
+
+export const forecastIncome = [
+  { amount: 3400, date: '2026-12-03', id: 'fi-salary-main', name: 'Salary — Alex (main job)' },
+  { amount: 1650, date: '2026-12-10', id: 'fi-salary-partner', name: 'Salary — Priya (part-time)' },
+  { amount: 420, date: '2026-12-18', id: 'fi-freelance', name: 'Freelance design work' },
+];
+
+export const forecastTransfer = {
+  amount: 1200,
+  date: '2026-12-16',
+  name: 'Transfer to savings',
+};
